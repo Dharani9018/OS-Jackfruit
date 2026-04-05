@@ -1,1 +1,49 @@
 solved
+# Per-container root filesystems (large, generated locally)
+rootfs-base/
+rootfs-alpha/
+rootfs-beta/
+rootfs-*/
+
+# Alpine tarball
+*.tar.gz
+
+# Compiled binaries
+engine
+cpu_hog
+io_pulse
+memory_hog
+
+# Kernel module build artifacts
+*.ko
+*.o
+*.mod
+*.mod.c
+*.symvers
+*.order
+.tmp_versions/
+Module.symvers
+modules.order
+
+# Log files
+*.log
+logs/
+
+# IPC socket
+/tmp/mini_runtime.sock
+
+# Build artifacts
+*.out
+*.a
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+notes.md
