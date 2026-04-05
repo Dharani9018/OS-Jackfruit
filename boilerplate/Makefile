@@ -1,10 +1,7 @@
 obj-m += monitor.o
 
 KDIR := /lib/modules/$(shell uname -r)/build
-PWD := $(shell pwd)
-# If you want host-built workload binaries to run directly inside an Alpine
-# rootfs, you can override this with WORKLOAD_LDFLAGS=-static when your
-# toolchain supports it.
+PWD  := $(shell pwd)
 WORKLOAD_LDFLAGS ?= -static
 
 USER_TARGETS := engine memory_hog cpu_hog io_pulse
@@ -13,17 +10,24 @@ all: $(USER_TARGETS) module
 
 module: monitor.ko
 
-engine: engine.c monitor_ioctl.h
-	gcc -O2 -Wall -Wextra -o engine engine.c -lpthread
+ENGINE_SRCS := engine.c \
+               supervisor/supervisor.c \
+               supervisor/container.c \
+               supervisor/signal_handler.c \
+               cli/cli.c \
+               logging/log_buffer.c
 
-memory_hog: memory_hog.c
-	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o memory_hog memory_hog.c
+engine: $(ENGINE_SRCS) engine.h monitor_ioctl.h
+	gcc -O2 -Wall -Wextra -I. -o engine $(ENGINE_SRCS) -lpthread
 
-cpu_hog: cpu_hog.c
-	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o cpu_hog cpu_hog.c
+memory_hog: workloads/memory_hog.c
+	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o memory_hog workloads/memory_hog.c
 
-io_pulse: io_pulse.c
-	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o io_pulse io_pulse.c
+cpu_hog: workloads/cpu_hog.c
+	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o cpu_hog workloads/cpu_hog.c
+
+io_pulse: workloads/io_pulse.c
+	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o io_pulse workloads/io_pulse.c
 
 monitor.ko: monitor.c monitor_ioctl.h
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
