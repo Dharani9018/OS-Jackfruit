@@ -14,10 +14,15 @@
 #include <linux/mm.h>
 #include <linux/jiffies.h>
 
+#include <linux/version.h>
+#include <linux/interrupt.h>
+
 #include "monitor_ioctl.h"
 
 #define DEVICE_NAME "container_monitor"
 #define CHECK_INTERVAL_MS 1000
+
+extern int del_timer_sync(struct timer_list *timer);
 
 struct monitored_entry {
     pid_t pid;
@@ -137,7 +142,7 @@ static int __init monitor_init(void)
     rc = cdev_add(&mon_cdev, dev_num, 1);
     if (rc < 0) goto err_cdev;
 
-    mon_class = class_create(THIS_MODULE, DEVICE_NAME);
+    mon_class = class_create(DEVICE_NAME);
     if (IS_ERR(mon_class)) { rc = PTR_ERR(mon_class); goto err_class; }
 
     mon_device = device_create(mon_class, NULL, dev_num, NULL, DEVICE_NAME);
@@ -159,7 +164,7 @@ static void __exit monitor_exit(void)
 {
     struct monitored_entry *entry, *tmp;
 
-    del_timer_sync(&check_timer);
+    timer_shutdown_sync(&check_timer);
 
     mutex_lock(&list_lock);
     list_for_each_entry_safe(entry, tmp, &monitored_list, list) {

@@ -271,7 +271,10 @@ void handle_logs(supervisor_ctx_t *ctx, const char *id, int client_fd)
     pthread_mutex_lock(&ctx->metadata_lock);
     r = find_container(ctx, id);
     if (r)
+    { 
         strncpy(log_path, r->log_path, sizeof(log_path) - 1);
+        log_path[sizeof(log_path) - 1] = '\0';
+    }
     pthread_mutex_unlock(&ctx->metadata_lock);
 
     if (!r) {

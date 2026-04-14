@@ -42,6 +42,7 @@ static void *producer_thread(void *arg)
     while ((n = read(parg->pipe_read_fd, buf, sizeof(buf))) > 0) {
         memset(&item, 0, sizeof(item));
         strncpy(item.container_id, parg->container_id, CONTAINER_ID_LEN - 1);
+        item.container_id[CONTAINER_ID_LEN - 1] = '\0';
         item.length = (size_t)n;
         memcpy(item.data, buf, (size_t)n);
         bounded_buffer_push(parg->log_buffer, &item);
