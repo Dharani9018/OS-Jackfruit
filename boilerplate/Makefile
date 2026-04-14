@@ -20,6 +20,7 @@ ENGINE_SRCS := engine.c \
 engine: $(ENGINE_SRCS) engine.h monitor_ioctl.h
 	gcc -O2 -Wall -Wextra -I. -o engine $(ENGINE_SRCS) -lpthread
 
+# Fixed paths for workloads
 memory_hog: workloads/memory_hog.c
 	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o memory_hog workloads/memory_hog.c
 
@@ -34,7 +35,7 @@ monitor.ko: monitor.c monitor_ioctl.h
 
 clean:
 	if [ -d "$(KDIR)" ]; then $(MAKE) -C $(KDIR) M=$(PWD) clean; fi
-	rm -f $(USER_TARGETS) *.o *.mod *.mod.c *.symvers *.order
+	rm -f $(USER_TARGETS) *.o *.ko *.mod *.mod.c *.symvers *.order
 	rm -f *.log
 	rm -rf logs
 	rm -f /tmp/mini_runtime.sock

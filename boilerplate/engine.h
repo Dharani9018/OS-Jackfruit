@@ -13,6 +13,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -33,10 +34,16 @@
 #define LOG_BUFFER_CAPACITY 16
 #define DEFAULT_SOFT_LIMIT  (40UL << 20)
 #define DEFAULT_HARD_LIMIT  (64UL << 20)
+#define MAX_CONTAINERS      16
+#define STOP_TIMEOUT_SEC    5
 
 typedef enum {
     CMD_SUPERVISOR = 0,
-    CMD_START, CMD_RUN, CMD_PS, CMD_LOGS, CMD_STOP
+    CMD_START,
+    CMD_RUN,
+    CMD_PS,
+    CMD_LOGS,
+    CMD_STOP
 } command_kind_t;
 
 typedef enum {
@@ -58,6 +65,8 @@ typedef struct container_record {
     int exit_signal;
     int stop_requested;
     char log_path[PATH_MAX];
+    int pipe_read_fd;
+    pthread_t producer_thread;
     struct container_record *next;
 } container_record_t;
 
@@ -69,7 +78,9 @@ typedef struct {
 
 typedef struct {
     log_item_t items[LOG_BUFFER_CAPACITY];
-    size_t head, tail, count;
+    size_t head;
+    size_t tail;
+    size_t count;
     int shutting_down;
     pthread_mutex_t mutex;
     pthread_cond_t not_empty;
@@ -96,14 +107,20 @@ typedef struct {
     char rootfs[PATH_MAX];
     char command[CHILD_COMMAND_LEN];
     int nice_value;
-    int log_write_fd;
+    int pipe_write_fd;
 } child_config_t;
+
+typedef struct {
+    int pipe_read_fd;
+    char container_id[CONTAINER_ID_LEN];
+    bounded_buffer_t *log_buffer;
+} producer_arg_t;
 
 typedef struct {
     int server_fd;
     int monitor_fd;
     int should_stop;
-    pthread_t logger_thread;
+    pthread_t consumer_thread;
     bounded_buffer_t log_buffer;
     pthread_mutex_t metadata_lock;
     container_record_t *containers;
