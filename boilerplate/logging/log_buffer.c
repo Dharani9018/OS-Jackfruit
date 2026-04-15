@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "log_buffer.h"
+#include <sys/stat.h>
 
 int bounded_buffer_init(bounded_buffer_t *buf)
 {
@@ -15,6 +16,10 @@ int bounded_buffer_init(bounded_buffer_t *buf)
         pthread_mutex_destroy(&buf->mutex);
         return rc;
     }
+    
+    // Create logs directory with proper permissions
+    mkdir(LOG_DIR, 0755);
+    
     return 0;
 }
 
@@ -79,10 +84,15 @@ void *logging_thread(void *arg)
 
     while (bounded_buffer_pop(buf, &item) == 0) {
         snprintf(path, sizeof(path), "%s/%s.log", LOG_DIR, item.container_id);
+        
+        // Open with O_CREAT to ensure file exists
         fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
         if (fd >= 0) {
             write(fd, item.data, item.length);
             close(fd);
+        } else {
+            fprintf(stderr, "Failed to open log file: %s\n", path);
+            perror("open");
         }
     }
 

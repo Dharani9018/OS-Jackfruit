@@ -45,14 +45,19 @@ static void *producer_thread(void *arg)
         item.container_id[CONTAINER_ID_LEN - 1] = '\0';
         item.length = (size_t)n;
         memcpy(item.data, buf, (size_t)n);
+        
+        // Debug: print what we're logging
+        fprintf(stderr, "Producer: logging %zu bytes from container %s\n", 
+                (size_t)n, parg->container_id);
+        
         bounded_buffer_push(parg->log_buffer, &item);
     }
 
+    fprintf(stderr, "Producer: container %s pipe closed, exiting\n", parg->container_id);
     close(parg->pipe_read_fd);
     free(parg);
     return NULL;
 }
-
 int launch_container(supervisor_ctx_t *ctx, const control_request_t *req)
 {
     int pipefd[2];

@@ -226,6 +226,13 @@ int run_supervisor(const char *rootfs)
             dispatch(&ctx, &req, client_fd);
 
         close(client_fd);
+            mkdir(LOG_DIR, 0755);
+    chmod(LOG_DIR, 0755);
+    
+    // Also create it in the rootfs
+    char rootfs_log_path[PATH_MAX];
+    snprintf(rootfs_log_path, sizeof(rootfs_log_path), "%s/%s", rootfs, LOG_DIR);
+    mkdir(rootfs_log_path, 0755);
     }
 
     container_record_t *r = ctx.containers;
