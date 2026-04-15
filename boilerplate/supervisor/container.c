@@ -62,14 +62,32 @@ int launch_container(supervisor_ctx_t *ctx, const control_request_t *req)
     container_record_t *record;
     producer_arg_t *parg;
 
-    pthread_mutex_lock(&ctx->metadata_lock);
-    container_record_t *existing = find_container(ctx, req->container_id);
-    if (existing != NULL && existing->state == CONTAINER_RUNNING) {
+pthread_mutex_lock(&ctx->metadata_lock);
+container_record_t *existing = find_container(ctx, req->container_id);
+if (existing != NULL) {
+    // Remove the old entry first
+    if (existing->state == CONTAINER_RUNNING) {
         pthread_mutex_unlock(&ctx->metadata_lock);
-        fprintf(stderr, "Container %s already exists\n", req->container_id);
+        fprintf(stderr, "Container %s already running\n", req->container_id);
         return -1;
     }
-    pthread_mutex_unlock(&ctx->metadata_lock);
+    // Remove the exited container from list
+    container_record_t *prev = NULL;
+    container_record_t *curr = ctx->containers;
+    while (curr) {
+        if (strcmp(curr->id, req->container_id) == 0) {
+            if (prev)
+                prev->next = curr->next;
+            else
+                ctx->containers = curr->next;
+            free(curr);
+            break;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+}
+pthread_mutex_unlock(&ctx->metadata_lock);
 
     if (pipe(pipefd) < 0) {
         perror("pipe");

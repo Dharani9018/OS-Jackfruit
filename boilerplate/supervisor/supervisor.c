@@ -5,6 +5,73 @@
 #include "../logging/log_buffer.h"
 
 static supervisor_ctx_t *g_ctx = NULL;
+static void cleanup_exited_containers(supervisor_ctx_t *ctx)
+{
+    pthread_mutex_lock(&ctx->metadata_lock);
+    
+    container_record_t *prev = NULL;
+    container_record_t *curr = ctx->containers;
+    
+    while (curr) {
+        if (curr->state != CONTAINER_RUNNING && curr->state != CONTAINER_STARTING) {
+            // Container is dead, remove it
+            container_record_t *to_remove = curr;
+            
+            if (prev)
+                prev->next = curr->next;
+            else
+                ctx->containers = curr->next;
+            
+            curr = curr->next;
+            free(to_remove);
+        } else {
+            prev = curr;
+            curr = curr->next;
+        }
+    }
+    
+    pthread_mutex_unlock(&ctx->metadata_lock);
+}
+static void reap_dead_containers(supervisor_ctx_t *ctx)
+{
+    int status;
+    pid_t pid;
+    container_record_t *r;
+    int changed = 0;
+
+    // Non-blocking wait for any terminated child
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        pthread_mutex_lock(&ctx->metadata_lock);
+        
+        r = ctx->containers;
+        while (r) {
+            if (r->host_pid == pid) {
+                // Update container state
+                if (r->stop_requested)
+                    r->state = CONTAINER_STOPPED;
+                else if (WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL)
+                    r->state = CONTAINER_KILLED;
+                else
+                    r->state = CONTAINER_EXITED;
+                
+                // Store exit code
+                if (WIFEXITED(status))
+                    r->exit_code = WEXITSTATUS(status);
+                else if (WIFSIGNALED(status))
+                    r->exit_code = 128 + WTERMSIG(status);
+                
+                printf("Container %s (pid=%d) exited with state=%s, code=%d\n", 
+                       r->id, pid, state_to_string(r->state), r->exit_code);
+                
+                changed = 1;
+                break;
+            }
+            r = r->next;
+        }
+        
+        pthread_mutex_unlock(&ctx->metadata_lock);
+    }
+}
 
 static int setup_socket(void)
 {
@@ -141,6 +208,8 @@ int run_supervisor(const char *rootfs)
     fflush(stdout);
 
     while (!ctx.should_stop) {
+        reap_dead_containers(&ctx);
+        cleanup_exited_containers(&ctx);
         FD_ZERO(&readfds);
         FD_SET(ctx.server_fd, &readfds);
         tv.tv_sec  = 1;
@@ -196,7 +265,6 @@ int run_supervisor(const char *rootfs)
     fprintf(stdout, "Supervisor exited cleanly.\n");
     return 0;
 }
-
 void handle_stop(supervisor_ctx_t *ctx, const char *id, control_response_t *resp)
 {
     container_record_t *r;
@@ -204,12 +272,22 @@ void handle_stop(supervisor_ctx_t *ctx, const char *id, control_response_t *resp
 
     pthread_mutex_lock(&ctx->metadata_lock);
     r = find_container(ctx, id);
-    if (!r || r->state != CONTAINER_RUNNING) {
+    if (!r) {
         resp->status = 1;
-        snprintf(resp->message, sizeof(resp->message), "ERR container %s not running", id);
+        snprintf(resp->message, sizeof(resp->message), "ERR container %s not found", id);
         pthread_mutex_unlock(&ctx->metadata_lock);
         return;
     }
+    
+    // If already exited/stopped
+    if (r->state != CONTAINER_RUNNING) {
+        resp->status = 0;
+        snprintf(resp->message, sizeof(resp->message), "OK container %s already stopped (state=%s)", 
+                 id, state_to_string(r->state));
+        pthread_mutex_unlock(&ctx->metadata_lock);
+        return;
+    }
+    
     r->stop_requested = 1;
     kill(r->host_pid, SIGTERM);
     pthread_mutex_unlock(&ctx->metadata_lock);
@@ -230,8 +308,10 @@ void handle_stop(supervisor_ctx_t *ctx, const char *id, control_response_t *resp
 
     pthread_mutex_lock(&ctx->metadata_lock);
     r = find_container(ctx, id);
-    if (r && r->state == CONTAINER_RUNNING)
+    if (r && r->state == CONTAINER_RUNNING) {
         kill(r->host_pid, SIGKILL);
+        r->state = CONTAINER_KILLED;
+    }
     pthread_mutex_unlock(&ctx->metadata_lock);
 
     resp->status = 0;
