@@ -85,7 +85,6 @@ int cmd_start(int argc, char *argv[])
     if (parse_optional_flags(&req, argc, argv, 5) != 0) return 1;
     return send_request(&req, 0);
 }
-
 int cmd_run(int argc, char *argv[])
 {
     control_request_t req;
@@ -101,7 +100,7 @@ int cmd_run(int argc, char *argv[])
     req.soft_limit_bytes = DEFAULT_SOFT_LIMIT;
     req.hard_limit_bytes = DEFAULT_HARD_LIMIT;
     if (parse_optional_flags(&req, argc, argv, 5) != 0) return 1;
-    return send_request(&req, 1);
+    return send_request(&req, 0);  
 }
 
 int cmd_ps(void)

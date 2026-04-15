@@ -63,7 +63,8 @@ int launch_container(supervisor_ctx_t *ctx, const control_request_t *req)
     producer_arg_t *parg;
 
     pthread_mutex_lock(&ctx->metadata_lock);
-    if (find_container(ctx, req->container_id) != NULL) {
+    container_record_t *existing = find_container(ctx, req->container_id);
+    if (existing != NULL && existing->state == CONTAINER_RUNNING) {
         pthread_mutex_unlock(&ctx->metadata_lock);
         fprintf(stderr, "Container %s already exists\n", req->container_id);
         return -1;
