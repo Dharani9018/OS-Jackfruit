@@ -1,43 +1,46 @@
+CC = gcc
+CFLAGS = -Wall -Wextra -O2 -D_GNU_SOURCE
+LDFLAGS = -pthread
+
+KERNEL_DIR ?= /lib/modules/$(shell uname -r)/build
 obj-m += monitor.o
 
-KDIR := /lib/modules/$(shell uname -r)/build
-PWD  := $(shell pwd)
-WORKLOAD_LDFLAGS ?= -static
+TARGETS = engine
+WORKLOADS = workloads/cpu_hog workloads/io_pulse workloads/memory_hog
 
-USER_TARGETS := engine memory_hog cpu_hog io_pulse
+.PHONY: all clean ci workloads load-module unload-module
 
-all: $(USER_TARGETS) module
+all: $(TARGETS) workloads
 
-module: monitor.ko
+engine: engine.c monitor_ioctl.h
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
-ENGINE_SRCS := engine.c \
-               supervisor/supervisor.c \
-               supervisor/container.c \
-               supervisor/signal_handler.c \
-               cli/cli.c \
-               logging/log_buffer.c
+workloads/cpu_hog: workloads/cpu_hog.c
+	$(CC) $(CFLAGS) -static -o $@ $<
 
-engine: $(ENGINE_SRCS) engine.h monitor_ioctl.h
-	gcc -O2 -Wall -Wextra -I. -o engine $(ENGINE_SRCS) -lpthread
+workloads/io_pulse: workloads/io_pulse.c
+	$(CC) $(CFLAGS) -static -o $@ $<
 
-# Fixed paths for workloads
-memory_hog: workloads/memory_hog.c
-	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o memory_hog workloads/memory_hog.c
+workloads/memory_hog: workloads/memory_hog.c
+	$(CC) $(CFLAGS) -static -o $@ $<
 
-cpu_hog: workloads/cpu_hog.c
-	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o cpu_hog workloads/cpu_hog.c
-
-io_pulse: workloads/io_pulse.c
-	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o io_pulse workloads/io_pulse.c
+workloads: $(WORKLOADS)
 
 monitor.ko: monitor.c monitor_ioctl.h
-	$(MAKE) -C $(KDIR) M=$(PWD) modules
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) modules
+
+ci: $(TARGETS) workloads
+	@echo "CI smoke check passed: user-space binaries built successfully"
+
+load-module: monitor.ko
+	sudo insmod monitor.ko
+	@echo "Module loaded. Device: /dev/container_monitor"
+
+unload-module:
+	sudo rmmod monitor || true
+	@echo "Module unloaded"
 
 clean:
-	if [ -d "$(KDIR)" ]; then $(MAKE) -C $(KDIR) M=$(PWD) clean; fi
-	rm -f $(USER_TARGETS) *.o *.ko *.mod *.mod.c *.symvers *.order
-	rm -f *.log
-	rm -rf logs
-	rm -f /tmp/mini_runtime.sock
-
-.PHONY: all module clean
+	rm -f engine $(WORKLOADS)
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
+	rm -f *.o *.ko *.mod.c *.mod *.order *.symvers *.mod.d

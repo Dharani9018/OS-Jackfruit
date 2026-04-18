@@ -1,1 +1,1 @@
-savedcmd_monitor.ko := ld -r -m elf_x86_64 -z noexecstack --no-warn-rwx-segments --build-id=sha1  -T /usr/lib/modules/6.19.8-arch1-1/build/scripts/module.lds -o monitor.ko monitor.o monitor.mod.o .module-common.o
+cmd_/home/dharani/OsJack/boilerplate/monitor.ko := ld -r -m elf_x86_64 -z noexecstack --build-id=sha1  -T scripts/module.lds -o /home/dharani/OsJack/boilerplate/monitor.ko /home/dharani/OsJack/boilerplate/monitor.o /home/dharani/OsJack/boilerplate/monitor.mod.o;  true

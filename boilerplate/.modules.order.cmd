@@ -1,1 +1,1 @@
-savedcmd_modules.order := {   echo monitor.o; :; } > modules.order
+cmd_/home/dharani/OsJack/boilerplate/modules.order := {   echo /home/dharani/OsJack/boilerplate/monitor.ko; :; } | awk '!x[$$0]++' - > /home/dharani/OsJack/boilerplate/modules.order

@@ -1,1 +1,1 @@
-savedcmd_Module.symvers :=  /usr/lib/modules/6.19.8-arch1-1/build/scripts/mod/modpost -M    -a    -N  -o Module.symvers -n -T modules.order -i /usr/lib/modules/6.19.8-arch1-1/build/Module.symvers -e 
+cmd_/home/dharani/OsJack/boilerplate/Module.symvers := sed 's/\.ko$$/\.o/' /home/dharani/OsJack/boilerplate/modules.order | scripts/mod/modpost -m -a  -o /home/dharani/OsJack/boilerplate/Module.symvers -e -i Module.symvers   -T -
