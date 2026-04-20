@@ -37,9 +37,6 @@
 #define DEFAULT_HARD_LIMIT  (64UL << 20)
 #define MONITOR_DEVICE      "/dev/container_monitor"
 
-/* ============================================================================
- * Type Definitions
- * ============================================================================ */
 
 typedef enum {
     CMD_SUPERVISOR = 0,
@@ -131,9 +128,6 @@ typedef struct {
 
 static supervisor_ctx_t g_ctx;
 
-/* ============================================================================
- * Utility Functions
- * ============================================================================ */
 
 static void usage(const char *prog) {
     fprintf(stderr,
@@ -186,18 +180,28 @@ static int parse_mib_flag(const char *flag, const char *value, unsigned long *ta
 }
 
 static int parse_optional_flags(control_request_t *req, int argc, char *argv[], int start_index) {
-    for (int i = start_index; i < argc; i += 2) {
-        if (i + 1 >= argc) {
-            fprintf(stderr, "Missing value for option: %s\n", argv[i]);
-            return -1;
-        }
+    for (int i = start_index; i < argc; i++) {
         if (strcmp(argv[i], "--soft-mib") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for --soft-mib\n");
+                return -1;
+            }
             if (parse_mib_flag("--soft-mib", argv[i + 1], &req->soft_limit_bytes) != 0)
                 return -1;
+            i++;
         } else if (strcmp(argv[i], "--hard-mib") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for --hard-mib\n");
+                return -1;
+            }
             if (parse_mib_flag("--hard-mib", argv[i + 1], &req->hard_limit_bytes) != 0)
                 return -1;
+            i++;
         } else if (strcmp(argv[i], "--nice") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Missing value for --nice\n");
+                return -1;
+            }
             char *end;
             long val = strtol(argv[i + 1], &end, 10);
             if (*end != '\0' || val < -20 || val > 19) {
@@ -205,11 +209,13 @@ static int parse_optional_flags(control_request_t *req, int argc, char *argv[], 
                 return -1;
             }
             req->nice_value = (int)val;
+            i++;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             return -1;
         }
     }
+    
     if (req->soft_limit_bytes > req->hard_limit_bytes) {
         fprintf(stderr, "Invalid limits: soft limit cannot exceed hard limit\n");
         return -1;
@@ -224,9 +230,6 @@ static void ensure_log_directory(void) {
     }
 }
 
-/* ============================================================================
- * Bounded Buffer Implementation
- * ============================================================================ */
 
 static int bounded_buffer_init(bounded_buffer_t *buffer, size_t capacity) {
     memset(buffer, 0, sizeof(*buffer));
@@ -307,9 +310,6 @@ static int bounded_buffer_pop(bounded_buffer_t *buffer, log_item_t *item) {
     return 0;
 }
 
-/* ============================================================================
- * Container Metadata Management
- * ============================================================================ */
 
 static container_record_t *find_container_by_id(const char *id) {
     container_record_t *c;
@@ -374,9 +374,6 @@ static void remove_container_record(container_record_t *c) {
     free(c);
 }
 
-/* ============================================================================
- * Kernel Monitor Integration
- * ============================================================================ */
 
 static int register_with_monitor(const char *container_id, pid_t host_pid,
                                   unsigned long soft, unsigned long hard) {
@@ -401,9 +398,6 @@ static int unregister_from_monitor(const char *container_id, pid_t host_pid) {
     return ioctl(g_ctx.monitor_fd, MONITOR_UNREGISTER, &req);
 }
 
-/* ============================================================================
- * Logging Thread (Consumer)
- * ============================================================================ */
 
 static void *logging_thread(void *arg) {
     (void)arg;
@@ -438,9 +432,6 @@ static void *logging_thread(void *arg) {
     return NULL;
 }
 
-/* ============================================================================
- * Producer Thread (Reads from container pipes)
- * ============================================================================ */
 
 static void *producer_thread(void *arg) {
     container_record_t *c = (container_record_t *)arg;
@@ -466,9 +457,6 @@ static void *producer_thread(void *arg) {
     return NULL;
 }
 
-/* ============================================================================
- * Container Child Process
- * ============================================================================ */
 
 struct child_args {
     char rootfs[PATH_MAX];
@@ -480,23 +468,19 @@ struct child_args {
 static int child_fn(void *arg) {
     struct child_args *args = (struct child_args *)arg;
     
-    /* Set nice value */
     if (args->nice_value != 0) {
         nice(args->nice_value);
     }
     
-    /* Unshare namespaces */
     if (unshare(CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWNS) == -1) {
         perror("unshare");
         return 1;
     }
     
-    /* Mount /proc */
     if (mount("proc", "/proc", "proc", 0, NULL) == -1) {
         perror("mount /proc");
     }
     
-    /* Chroot */
     if (chroot(args->rootfs) == -1) {
         perror("chroot");
         return 1;
@@ -572,9 +556,6 @@ static pid_t launch_container(container_record_t *c, const char *rootfs, const c
     return pid;
 }
 
-/* ============================================================================
- * SIGCHLD Handler
- * ============================================================================ */
 
 static void sigchld_handler(int sig) {
     (void)sig;
@@ -593,15 +574,23 @@ static void sigchld_handler(int sig) {
                 } else {
                     c->exit_reason = EXIT_NORMAL;
                 }
+                printf("[SUPERVISOR] Container %s exited normally (PID: %d, Exit code: %d)\n", 
+                       c->id, pid, c->exit_code);
             } else if (WIFSIGNALED(status)) {
                 c->exit_signal = WTERMSIG(status);
                 c->state = CONTAINER_KILLED;
                 if (c->stop_requested) {
                     c->exit_reason = EXIT_STOP_REQUESTED;
+                    printf("[SUPERVISOR] Container %s stopped by request (PID: %d, Signal: %d)\n", 
+                           c->id, pid, c->exit_signal);
                 } else if (c->exit_signal == SIGKILL) {
                     c->exit_reason = EXIT_HARD_LIMIT;
+                    printf("[SUPERVISOR] Container %s killed - hard limit exceeded (PID: %d)\n", 
+                           c->id, pid);
                 } else {
                     c->exit_reason = EXIT_SIGNALED;
+                    printf("[SUPERVISOR] Container %s terminated by signal %d (PID: %d)\n", 
+                           c->id, c->exit_signal, pid);
                 }
             }
             
@@ -618,24 +607,19 @@ static void sigchld_handler(int sig) {
     }
 }
 
-/* ============================================================================
- * Signal Handler for Supervisor Shutdown
- * ============================================================================ */
 
 static void supervisor_signal_handler(int sig) {
     (void)sig;
+    printf("\n[SUPERVISOR] Received shutdown signal, stopping all containers...\n");
     g_ctx.should_stop = 1;
 }
 
-/* ============================================================================
- * Control Socket Command Processing
- * ============================================================================ */
-
 static void handle_start_command(control_request_t *req, control_response_t *resp) {
     container_record_t *existing = find_container_by_id(req->container_id);
-    if (existing && (existing->state == CONTAINER_RUNNING || existing->state == CONTAINER_STARTING)) {
+    if (existing && existing->state == CONTAINER_RUNNING) {
         resp->status = -1;
-        snprintf(resp->message, CONTROL_MESSAGE_LEN, "Container %s already running", req->container_id);
+        snprintf(resp->message, CONTROL_MESSAGE_LEN, 
+                "Container %s is already running", req->container_id);
         return;
     }
     
@@ -661,7 +645,9 @@ static void handle_start_command(control_request_t *req, control_response_t *res
     }
     
     resp->status = 0;
-    snprintf(resp->message, CONTROL_MESSAGE_LEN, "Container %s started with PID %d", req->container_id, pid);
+    snprintf(resp->message, CONTROL_MESSAGE_LEN, "Container %s started with PID %d", 
+             req->container_id, pid);
+    printf("[SUPERVISOR] Container %s started (PID: %d)\n", req->container_id, pid);
 }
 
 static void handle_run_command(control_request_t *req, control_response_t *resp) {
@@ -675,15 +661,15 @@ static void handle_run_command(control_request_t *req, control_response_t *resp)
         return;
     }
     
-    /* Wait for container to exit */
     int status;
+    printf("[SUPERVISOR] Waiting for container %s to complete...\n", req->container_id);
     waitpid(c->host_pid, &status, 0);
     
     resp->status = 0;
     resp->exit_code = c->exit_code;
     resp->exit_signal = c->exit_signal;
     resp->exit_reason = c->exit_reason;
-    snprintf(resp->message, CONTROL_MESSAGE_LEN, "Container %s exited", req->container_id);
+    snprintf(resp->message, CONTROL_MESSAGE_LEN, "Container %s completed", req->container_id);
 }
 
 static void handle_ps_command(control_request_t *req, control_response_t *resp) {
@@ -730,29 +716,37 @@ static void handle_stop_command(control_request_t *req, control_response_t *resp
     container_record_t *c = find_container_by_id(req->container_id);
     if (!c) {
         resp->status = -1;
-        snprintf(resp->message, CONTROL_MESSAGE_LEN, "Container %s not found", req->container_id);
+        snprintf(resp->message, CONTROL_MESSAGE_LEN, 
+                "Container %s not found", req->container_id);
         return;
     }
     
     if (c->state != CONTAINER_RUNNING) {
         resp->status = -1;
-        snprintf(resp->message, CONTROL_MESSAGE_LEN, "Container %s not running", req->container_id);
+        snprintf(resp->message, CONTROL_MESSAGE_LEN, 
+                "Container %s is not running (state: %s)", 
+                req->container_id, state_to_string(c->state));
         return;
     }
     
     c->stop_requested = 1;
     
-    /* Try SIGTERM first */
+    printf("[SUPERVISOR] Stopping container %s (PID: %d)...\n", req->container_id, c->host_pid);
     kill(c->host_pid, SIGTERM);
     
-    /* Wait a bit, then SIGKILL if still running */
     usleep(100000);
     if (kill(c->host_pid, 0) == 0) {
         kill(c->host_pid, SIGKILL);
+        snprintf(resp->message, CONTROL_MESSAGE_LEN, 
+                "Container %s force stopped", req->container_id);
+        printf("[SUPERVISOR] Container %s force stopped\n", req->container_id);
+    } else {
+        snprintf(resp->message, CONTROL_MESSAGE_LEN, 
+                "Container %s stopped gracefully", req->container_id);
+        printf("[SUPERVISOR] Container %s stopped gracefully\n", req->container_id);
     }
     
     resp->status = 0;
-    snprintf(resp->message, CONTROL_MESSAGE_LEN, "Container %s stopped", req->container_id);
 }
 
 static void process_control_request(int client_fd) {
@@ -781,9 +775,6 @@ static void process_control_request(int client_fd) {
     send(client_fd, &resp, sizeof(resp), 0);
 }
 
-/* ============================================================================
- * Supervisor Main Loop
- * ============================================================================ */
 
 static int run_supervisor(const char *rootfs) {
     struct sockaddr_un addr;
@@ -803,7 +794,6 @@ static int run_supervisor(const char *rootfs) {
         return 1;
     }
     
-    /* Initialize bounded buffer */
     rc = bounded_buffer_init(&g_ctx.log_buffer, LOG_BUFFER_CAPACITY);
     if (rc != 0) {
         errno = rc;
@@ -812,17 +802,14 @@ static int run_supervisor(const char *rootfs) {
         return 1;
     }
     
-    /* Ensure log directory exists */
     ensure_log_directory();
     
-    /* Open kernel monitor device */
     g_ctx.monitor_fd = open(MONITOR_DEVICE, O_RDWR);
     if (g_ctx.monitor_fd < 0) {
         perror("open " MONITOR_DEVICE);
         fprintf(stderr, "Warning: Continuing without kernel monitor\n");
     }
     
-    /* Create control socket */
     unlink(CONTROL_PATH);
     g_ctx.server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (g_ctx.server_fd < 0) {
@@ -844,18 +831,17 @@ static int run_supervisor(const char *rootfs) {
         goto cleanup;
     }
     
-    /* Install signal handlers */
     signal(SIGCHLD, sigchld_handler);
     signal(SIGINT, supervisor_signal_handler);
     signal(SIGTERM, supervisor_signal_handler);
     
-    /* Start logging thread */
     pthread_create(&g_ctx.logger_thread, NULL, logging_thread, NULL);
     
-    printf("Supervisor started. Control socket: %s\n", CONTROL_PATH);
-    printf("Log directory: %s\n", LOG_DIR);
+    printf("[SUPERVISOR] Multi-Container Runtime Started\n");
+    printf("[SUPERVISOR] Control socket: %s\n", CONTROL_PATH);
+    printf("[SUPERVISOR] Log directory: %s\n", LOG_DIR);
+    printf("[SUPERVISOR] Monitor device: %s\n", g_ctx.monitor_fd >= 0 ? MONITOR_DEVICE : "disabled");
     
-    /* Main event loop */
     while (!g_ctx.should_stop) {
         fd_set readfds;
         struct timeval tv = {1, 0};
@@ -879,30 +865,29 @@ static int run_supervisor(const char *rootfs) {
         }
     }
     
-    printf("Supervisor shutting down...\n");
+    printf("[SUPERVISOR] Shutting down...\n");
     
-    /* Stop all running containers */
     pthread_mutex_lock(&g_ctx.metadata_lock);
     for (container_record_t *c = g_ctx.containers; c; c = c->next) {
         if (c->state == CONTAINER_RUNNING) {
+            printf("[SUPERVISOR] Stopping container %s...\n", c->id);
             c->stop_requested = 1;
             kill(c->host_pid, SIGTERM);
         }
     }
     pthread_mutex_unlock(&g_ctx.metadata_lock);
     
-    /* Wait for containers to exit */
     usleep(500000);
     
     pthread_mutex_lock(&g_ctx.metadata_lock);
     for (container_record_t *c = g_ctx.containers; c; c = c->next) {
         if (c->state == CONTAINER_RUNNING) {
+            printf("[SUPERVISOR] Force killing container %s...\n", c->id);
             kill(c->host_pid, SIGKILL);
         }
     }
     pthread_mutex_unlock(&g_ctx.metadata_lock);
     
-    /* Wait for all children */
     while (waitpid(-1, NULL, 0) > 0);
     
 cleanup:
@@ -915,7 +900,6 @@ cleanup:
     }
     if (g_ctx.monitor_fd >= 0) close(g_ctx.monitor_fd);
     
-    /* Free container records */
     while (g_ctx.containers) {
         container_record_t *c = g_ctx.containers;
         g_ctx.containers = c->next;
@@ -925,12 +909,9 @@ cleanup:
     bounded_buffer_destroy(&g_ctx.log_buffer);
     pthread_mutex_destroy(&g_ctx.metadata_lock);
     
+    printf("[SUPERVISOR] Shutdown complete.\n");
     return 0;
 }
-
-/* ============================================================================
- * Client Functions
- * ============================================================================ */
 
 static int send_control_request(const control_request_t *req) {
     struct sockaddr_un addr;
@@ -975,10 +956,6 @@ static int send_control_request(const control_request_t *req) {
     printf("%s\n", resp.message);
     return 0;
 }
-
-/* ============================================================================
- * CLI Command Handlers
- * ============================================================================ */
 
 static int cmd_start(int argc, char *argv[]) {
     control_request_t req = {0};
@@ -1055,10 +1032,6 @@ static int cmd_stop(int argc, char *argv[]) {
     strncpy(req.container_id, argv[2], CONTAINER_ID_LEN - 1);
     return send_control_request(&req);
 }
-
-/* ============================================================================
- * Main Entry Point
- * ============================================================================ */
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {

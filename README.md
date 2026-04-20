@@ -2,45 +2,23 @@
 
 A lightweight Linux container runtime in C with a long-running supervisor and a kernel-space memory monitor.
 
-Read [`project-guide.md`](project-guide.md) for the full project specification.
+This project involves building a lightweight Linux container runtime in C with a long-running parent supervisor and a kernel-space memory monitor. The container runtime must manage multiple containers at once, coordinate concurrent logging safely, expose a small supervisor CLI, and include controlled experiments related to Linux scheduling.
 
+The project has two integrated parts:
+
+1. **User-Space Runtime + Supervisor (`engine.c`)**  
+   Launches and manages multiple isolated containers, maintains metadata for each container, accepts CLI commands, captures container output through a bounded-buffer logging system, and handles container lifecycle signals correctly.
+2. **Kernel-Space Monitor (`monitor.c`)**  
+   Implements a Linux Kernel Module (LKM) that tracks container processes, enforces soft and hard memory limits, and integrates with the user-space runtime through `ioctl`.
 ---
 
-## Getting Started
-
-### 1. Fork the Repository
-
-1. Go to [github.com/shivangjhalani/OS-Jackfruit](https://github.com/shivangjhalani/OS-Jackfruit)
-2. Click **Fork** (top-right)
-3. Clone your fork:
-
-```bash
-git clone https://github.com/<your-username>/OS-Jackfruit.git
-cd OS-Jackfruit
-```
-
-### 2. Set Up Your VM
-
-You need an **Ubuntu 22.04 or 24.04** VM with **Secure Boot OFF**. WSL will not work.
-
-Install dependencies:
+## Install dependencies:
 
 ```bash
 sudo apt update
 sudo apt install -y build-essential linux-headers-$(uname -r)
 ```
-
-### 3. Run the Environment Check
-
-```bash
-cd boilerplate
-chmod +x environment-check.sh
-sudo ./environment-check.sh
-```
-
-Fix any issues reported before moving on.
-
-### 4. Prepare the Root Filesystem
+## 1. Prepare the Root Filesystem
 
 ```bash
 mkdir rootfs-base
@@ -51,43 +29,83 @@ tar -xzf alpine-minirootfs-3.20.3-x86_64.tar.gz -C rootfs-base
 cp -a ./rootfs-base ./rootfs-alpha
 cp -a ./rootfs-base ./rootfs-beta
 ```
-
-Do not commit `rootfs-base/` or `rootfs-*` directories to your repository.
-
-### 5. Understand the Boilerplate
-
-The `boilerplate/` folder contains starter files:
-
-| File                   | Purpose                                             |
-| ---------------------- | --------------------------------------------------- |
-| `engine.c`             | User-space runtime and supervisor skeleton          |
-| `monitor.c`            | Kernel module skeleton                              |
-| `monitor_ioctl.h`      | Shared ioctl command definitions                    |
-| `Makefile`             | Build targets for both user-space and kernel module |
-| `cpu_hog.c`            | CPU-bound test workload                             |
-| `io_pulse.c`           | I/O-bound test workload                             |
-| `memory_hog.c`         | Memory-consuming test workload                      |
-| `environment-check.sh` | VM environment preflight check                      |
-
-Use these as your starting point. You are free to restructure the repository however you want — the submission requirements are listed in the project guide.
-
-### 6. Build and Verify
+## 2. Build
 
 ```bash
 cd boilerplate
-make
+make clean
+make all
+make monitor.ko
 ```
 
-If this compiles without errors, your environment is ready.
+## 3. Build kernel module
+```bash
+sudo insmod monitor.ko
+```
+## 4. Start supervisor:
+```bash
+sudo ./engine supervisor ./rootfs-base
+```
+## 5. Multi-container:
+### Container 1:
+```bash
+sudo ./engine start alpha ./rootfs-alpha "/bin/sh"
+```
+### Container 2:
+```bash
+sudo ./engine start beta ./rootfs-beta "/bin/sh"
+```
+## 4. Meta data:
+```bash
+sudo ./engine ps
+```
+## 5. Logs:
 
----
+```bash
+sudo ./engine start alpha ./rootfs-alpha "/cpu_hog 300"
+sudo ./engine start beta ./rootfs-beta "/cpu_hog 300"
+```
 
-## What to Do Next
+### Check logs:
+```bash
+cat logs/alpha.log
+```
+```bash
+cat logs/beta.log
+```
+## 6. Cli and PC:
+### check Working of Control plane IPC
+```bash
+ls -la /tmp/mini_runtime.sock
+```
+### Cli -> supervisor communication:
+```bash
+sudo ./engine run temp ./rootfs-alpha "echo Hello World"
+```
+### Supervisor -> container communication
+```bash
+cat logs/temp.log
+```
+## 7. Soft limit warning:
+### Clear dmesg:
+```bash
+sudo dmesg -c > /dev/null
+```
+### Start memory hog with soft limit
+```bash
+sudo ./engine start soft_test ./rootfs-gamma "/memory_hog 2 100" --soft-mib 10 --hard-mib 50
+```
+###  Wait for warning
+```bash
+sleep 8
+```
+### Show soft limit warning:
+```bash
+sudo dmesg | grep "SOFT LIMIT"
+```
+## 8. Show hard limit :
+```bash
+sudo ./engine ps | grep soft_test
+```
 
-Read [`project-guide.md`](project-guide.md) end to end. It contains:
 
-- The six implementation tasks (multi-container runtime, CLI, logging, kernel monitor, scheduling experiments, cleanup)
-- The engineering analysis you must write
-- The exact submission requirements, including what your `README.md` must contain (screenshots, analysis, design decisions)
-
-Your fork's `README.md` should be replaced with your own project documentation as described in the submission package section of the project guide. (As in get rid of all the above content and replace with your README.md)
